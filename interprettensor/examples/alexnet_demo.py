@@ -67,7 +67,8 @@ def main():
         prediction = tf.argmax(logits, 1)
 
     # Load the image
-    path = 'poodle.png'
+    path = 'poodle.png' # successful example
+    # path = 'doberman.png' # severly misclassified example
     im = load_image(path)
     #show_image(im)
 
