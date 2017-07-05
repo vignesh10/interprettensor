@@ -24,13 +24,15 @@ from tensorflow.python.framework import sparse_tensor
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import sparse_ops
 
+import numpy as np
+
 
 class Convolution(Module):
     '''
     Convolutional Layer
     '''
 
-    def __init__(self, output_depth, batch_size=None, input_dim = None, input_depth=None, kernel_size=5, stride_size=2, act = 'linear', keep_prob=1.0, pad = 'SAME',name="conv2d"):
+    def __init__(self, output_depth, batch_size=None, input_dim=None, input_depth=None, groups=1, kernel_size=5, stride_size=2, act = 'linear', keep_prob=1.0, pad = 'SAME', weights=None, biases=None, name="conv2d"):
         self.name = name
         #self.input_tensor = input_tensor
         Module.__init__(self)
@@ -47,6 +49,12 @@ class Convolution(Module):
         self.act = act
         self.keep_prob = keep_prob
         self.pad = pad
+
+        self.groups = groups
+
+        # initialize weights to these numpy arrays 
+        self.weights = weights 
+        self.biases = biases 
         
 
     def check_input_shape(self):
@@ -65,14 +73,32 @@ class Convolution(Module):
         self.in_N, self.in_h, self.in_w, self.in_depth = self.input_tensor.get_shape().as_list()
         
         # init weights
-        self.weights_shape = [self.kernel_size, self.kernel_size, self.in_depth, self.output_depth]
+        self.weights_shape = [self.kernel_size, self.kernel_size, self.in_depth/self.groups, self.output_depth]
         self.strides = [1,self.stride_size, self.stride_size,1]
         with tf.variable_scope(self.name):
-            self.weights = variables.weights(self.weights_shape)
-            self.biases = variables.biases(self.output_depth)
+            if self.weights is None:
+                self.weights = variables.weights(self.weights_shape)
+            else:
+                if not np.array_equal(self.weights.shape, self.weights_shape):
+                    self.weights = np.reshape(self.weights, self.weights_shape)
+                self.weights = tf.Variable(self.weights, name=self.name+'/weights') 
+            if self.biases is None:
+                self.biases = variables.biases(self.output_depth)
+            else:
+                if not np.array_equal(self.biases.shape, self.output_depth):
+                    self.biases = np.reshape(self.biases, self.output_depth)
+                self.biases = tf.Variable(self.biases, name=self.name+'/biases')
+                 
         
         with tf.name_scope(self.name):
-            conv = tf.nn.conv2d(self.input_tensor, self.weights, strides = self.strides, padding=self.pad)
+            if self.groups == 1:
+                conv = tf.nn.conv2d(self.input_tensor, self.weights, strides=self.strides, padding=self.pad)
+            else:
+                input_groups = tf.split(value=input_tensor, num_or_size_splits=self.groups, axis=3)
+                kernel_groups = tf.split(value=self.weights, num_or_size_splits=self.groups, axis=3)
+                output_groups = [tf.nn.conv2d(i, k, strides=self.strides, padding=self.pad) 
+                        for i,k in zip(input_groups, kernel_groups)]
+                conv = tf.concat(values=output_groups, axis=3)
             conv = tf.reshape(tf.nn.bias_add(conv, self.biases), conv.get_shape().as_list())
 
             if isinstance(self.act, str): 
